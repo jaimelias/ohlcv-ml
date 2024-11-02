@@ -5,7 +5,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "node index.js"
+    "test": "node index.js",
+    "fetch": "node dev/fetch-nasdaq.js"
   },
   "keywords": [
     "ml",
@@ -22,5 +23,8 @@
   "dependencies": {
     "ml-knn": "^3.0.0",
     "ohlcv-indicators": "^1.6.8"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.5"
   }
 }

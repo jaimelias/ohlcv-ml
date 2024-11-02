@@ -1,7 +1,7 @@
 import { scaleOhlcv } from "./src/scale.js"
 import { prepareDataset } from "./src/dataset.js"
 import {evaluateKNN} from './src/evaluate-knn.js'
-import {loadDataset, validateKeyNames} from './src/utilities.js'
+import {loadFile, validateKeyNames, saveFile} from './src/utilities.js'
 import KNN from "ml-knn";
 import OHLCV_INDICATORS from "ohlcv-indicators"
 
@@ -10,11 +10,9 @@ const runClassifier = async () => {
     
     const symbol = 'SPY'
     const interval = '1d'
-    const type = 'etf'
 
     // loads an OHLCV array of objects in number format [{open, high, low, close, volume}, {open...}] 
-    const inputOhlcv = await loadDataset({symbol, interval, type}) // "./datasets/1d-etf-spy.json"
-
+    const inputOhlcv = await loadFile({fileName: `${interval}-${symbol}.json`, pathName: 'datasets'}) // "./datasets/1d-etf-spy.json"
 
     const start = performance.now()
 
@@ -59,16 +57,23 @@ const runClassifier = async () => {
     console.log('trainDataset: ', trainDataset.length)
 
     const k = (Array.isArray(trainLabels[0])) ? trainLabels[0].length + 1 : 2  //number of nearest neighbors (Default: number of labels + 1).
-    const knn = new KNN(trainDataset, trainLabels, { k })
+    const model = new KNN(trainDataset, trainLabels, { k })
 
-    const predictionLabels = knn.predict(testDataset)
+    const predictionLabels = model.predict(testDataset)
 
-    console.log('trainLabels: ', trainLabels.slice(-50))
-    console.log('predictionLabels: ', predictionLabels.slice(-50))
+    //console.log('trainLabels: ', trainLabels)
+    //console.log('predictionLabels: ', predictionLabels)
+
     console.log(evaluateKNN(testLabels, predictionLabels)) 
 
     const end = performance.now();
     console.log(`exampleFunction took ${end - start} milliseconds`)
+
+    await saveFile({
+        fileName: `knn-${interval}-${symbol}.json`, 
+        pathName: 'models', 
+        jsonData: JSON.stringify(model.toJSON())
+    })
 }
 
 
