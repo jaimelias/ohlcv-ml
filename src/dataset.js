@@ -1,42 +1,50 @@
+import { scaleArrayObj } from "./scale.js";
 
-export const prepareDataset = ({ transformedOhlcv, trainingSplit = 0.8, futureWindow = 1, parseFeaturesAndLabelsFunc, includeOnes, includeZeros, hiddenFeatures }) => {
+export const parseTrainingDataset = ({ arrObj, trainingSplit = 0.8, weights = {}, parseLabels, parseFeatures, forceScaling }) => {
+    const features = [];
+    const labels = [];
 
-    const {scaledOutput, keyNames} = transformedOhlcv
-    const rawDataset = scaledOutput.map(rowObj => Object.values(rowObj))
+    for (let x = 0; x < arrObj.length; x++) {
+        const parsedFeatures = parseFeatures({ objRow: arrObj, index: x });
+        const parsedLabels = parseLabels({ objRow: arrObj, index: x });
 
-    let dataset = new Array(rawDataset.length - futureWindow).fill(null)
-    let labels = new Array(rawDataset.length - futureWindow).fill(null)
-
-    // Iterate through the rawDataset to populate dataset and labels arrays
-    for (let x = 0; x < rawDataset.length - futureWindow; x++) {
-
-        const {
-            parsedFeatures = null, 
-            parsedLabels = null
-        } = parseFeaturesAndLabelsFunc({rawDataset, index: x, futureWindow, transformedOhlcv, includeOnes, includeZeros, hiddenFeatures})
- 
-        dataset[x] = parsedFeatures
-        labels[x] = parsedLabels
+        if (parsedFeatures && parsedLabels) {
+            features.push(parsedFeatures)
+            labels.push(parsedLabels)
+        }
     }
 
-    dataset = dataset.filter(d => d !== null)
-    labels = labels.filter(l => l !== null)
+    // Scale features and labels, if applicable
+    const scaledFeatures = scaleArrayObj({arrObj: features, weights, forceScaling}).scaledOutput
+    const scaledLabels = scaleArrayObj({arrObj: labels, weights, forceScaling}).scaledOutput
+    const splitIndex = Math.floor(scaledFeatures.length * trainingSplit)
 
-    const splitIndex = Math.floor(dataset.length * trainingSplit)
-
-    // Split the dataset and labels into training and testing sets
-    const trainDataset = dataset.slice(0, splitIndex)
-    const trainLabels = labels.slice(0, splitIndex)
-    const testDataset = dataset.slice(splitIndex)
-    const testLabels = labels.slice(splitIndex)
-
-    console.log(`${keyNames.length} keyNames:\n`, keyNames)
-
+    // Split into training and testing sets
     return {
-        trainDataset,
-        trainLabels,
-        testDataset,
-        testLabels
-    }
-}
+        trainFeatures: scaledFeatures.slice(0, splitIndex),
+        trainLabels: scaledLabels.slice(0, splitIndex),
+        testFeatures: scaledFeatures.slice(splitIndex),
+        testLabels: scaledLabels.slice(splitIndex),
+    };
+};
 
+
+export const parseProductionDataset = ({ arrObj, weights = {}, parseFeatures, forceScaling }) => {
+    const features = [];
+
+    for (let x = 0; x < arrObj.length; x++) {
+        const parsedFeatures = parseFeatures({ objRow: arrObj, index: x })
+
+        if (parsedFeatures && parsedLabels) {
+            features.push(parsedFeatures)
+        }
+    }
+
+    // Scale features and labels, if applicable
+    const scaledFeatures = scaleArrayObj({arrObj: features, weights, forceScaling}).scaledOutput
+
+    // Split into training and testing sets
+    return {
+        productionFeatures: scaledFeatures
+    }
+};

@@ -22,7 +22,9 @@
   "license": "ISC",
   "dependencies": {
     "ml-knn": "^3.0.0",
-    "ohlcv-indicators": "^1.6.8"
+    "ml-random-forest": "^2.1.0",
+    "ml-regression-multivariate-linear": "^2.0.4",
+    "ohlcv-indicators": "^1.7.2"
   },
   "devDependencies": {
     "dotenv": "^16.4.5"

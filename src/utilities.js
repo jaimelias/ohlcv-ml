@@ -28,21 +28,4 @@ export const saveFile = async ({fileName, pathName, jsonData}) => {
         console.error('Error saving model:', err);
         throw err; // Re-throw the error for handling in the calling function
     }
-};
-
-export const validateKeyNames = (objDataset, keyNames) => {
-
-    const lastValues = objDataset[objDataset.length -1]
-
-    //check if all the keyNames are in objDataset
-    keyNames.forEach(k =>  {
-        if(!lastValues.hasOwnProperty(k))
-        {
-            throw Error((`Invalid keyName "${k}" not found in: ${JSON.stringify(Object.keys(lastValues))}`));
-        }
-    })
-
-    console.log('lastValues of objDataset', lastValues)
-
-    return true
 }
