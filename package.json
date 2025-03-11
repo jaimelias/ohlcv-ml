@@ -2,11 +2,10 @@
   "name": "ohlcv-knn",
   "version": "1.0.0",
   "description": "OHLCV Pattern Classifier using K-Nearest Neighbors (KNN) in JavaScript",
-  "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "node index.js",
-    "fetch": "node dev/fetch-nasdaq.js"
+    "stocks": "node stocks.js",
+    "fetch-datasets": "node dev/fetch-datasets.js"
   },
   "keywords": [
     "ml",
@@ -21,12 +20,13 @@
   "author": "jaimelias",
   "license": "ISC",
   "dependencies": {
+    "ml-cart": "^2.1.1",
     "ml-knn": "^3.0.0",
-    "ml-random-forest": "^2.1.0",
-    "ml-regression-multivariate-linear": "^2.0.4",
-    "ohlcv-indicators": "^1.7.2"
+    "ohlcv-indicators": "^2.2.9",
+    "xy-scale": "^1.2.5"
   },
   "devDependencies": {
+    "chalk": "^5.3.0",
     "dotenv": "^16.4.5"
   }
 }
