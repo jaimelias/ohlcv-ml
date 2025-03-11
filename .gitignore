@@ -1,7 +1,6 @@
 # .gitignore file
 
 # Ignore test
-dev/
 datasets/
 models/
 
