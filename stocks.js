@@ -1,119 +1,6 @@
-import { parseTrainingXY } from "xy-scale"
-import {loadFile, saveFile} from './src/utilities.js'
 import OHLCV_INDICATORS from "ohlcv-indicators"
-import { knn, dt } from "./src/classifiers.js"
+import { runClassifier } from "./src/classifiers.js"
 import { isBetweenOrEqual } from "./studies/utilities/numbers.js"
-
-
-class SkipClass  {
-  constructor()
-  {
-    this.skip = 0
-    this.initialBalance = 0
-  }
-  add(idx)
-  {
-    this.skip = idx
-  }
-}
-
-const limit = 1000
-const type = 'stocks'
-const interval = '1d'
-const useCache = false
-const shuffle = true
-const balancing = null
-const skipNext = 1
-const sufix = `${type}-${interval}-${limit}`
-
-const runClassifier = async () => {
-
-
-  if (useCache) {
-    const cachedTrainingTestData = await loadFile({ fileName: `cache-${sufix}.json`, pathName: 'datasets' });
-    if (cachedTrainingTestData) {
-      console.log('running classifiers from cached data');
-      await knn(cachedTrainingTestData, sufix);
-      await dt(cachedTrainingTestData, sufix);
-      return true;
-    }
-  }
-
-  const allSymbols = await loadFile({ fileName: 'matrix.json', pathName: `datasets/${type}/${interval}` });
-  let trainXMatrix = [], trainYMatrix = [], testXMatrix = [], testYMatrix = [];
-  let configXMatrix = {}, configYMatrix = {};
-
-  // Process symbols concurrently.
-
-  for(let index = 0; index < allSymbols.length; index++)
-  {
-    const symbol = allSymbols[index]
-    const ohlcv = await loadFile({ fileName: `${symbol}.json`, pathName: `datasets/${type}/${interval}` });
-    if (!ohlcv) return null;
-
-    
-    const indicators = addIndicators(ohlcv.slice(-(limit + 250)))
-
-    const arrObj = indicators.getData().slice(-limit)
-
-    if (index === 0) {
-      console.log(arrObj[0]);
-    }
-
-    const {
-      trainX,
-      trainY,
-      testX, 
-      testY,
-      configX,
-      configY
-    } = parseTrainingXY({
-      arrObj,
-      trainingSplit: 0.9,
-      validateRows,
-      yCallbackFunc,
-      xCallbackFunc,
-      state: new SkipClass(),
-      shuffle,
-      balancing
-    })
-
-    configXMatrix[symbol] = configX;
-    configYMatrix[symbol] = configY;
-    trainXMatrix.push(...trainX);
-    trainYMatrix.push(...trainY);
-    testXMatrix.push(...testX);
-    testYMatrix.push(...testY);
-  }
-
-  const firstSymbol = allSymbols[0]
-
-  console.log(`configXMatrix.outputKeyNames`, configXMatrix[firstSymbol].outputKeyNames);
-  console.log(`configYMatrix.outputKeyNames`, configYMatrix[firstSymbol].outputKeyNames);
-
-
-  const trainingTestingData = {
-    trainX: trainXMatrix,
-    trainY: trainYMatrix,
-    testX: testXMatrix,
-    testY: testYMatrix,
-    keyNamesY: configYMatrix[firstSymbol].outputKeyNames,
-    limit,
-  };
-
-  if (!useCache) {
-    await saveFile({
-      fileName: `cache-${sufix}.json`,
-      pathName: 'datasets',
-      jsonData: JSON.stringify(trainingTestingData)
-    });
-  }
-
-  console.log('running classifiers from files');
-  await knn(trainingTestingData, sufix);
-  await dt(trainingTestingData, sufix);
-};
-
 
 const addIndicators = inputOhlcv => {
 
@@ -177,7 +64,6 @@ const xCallbackFunc = ({ objRow, index, state }) => {
   const requiredKeys = [
     ...barriers,
     ...emaDiffArray,
-    //'donchian_channel_range_close',
     'macd_diff_x_macd_dea',
   ]
 
@@ -200,8 +86,8 @@ const xCallbackFunc = ({ objRow, index, state }) => {
 
   const yCallbackFunc = ({ objRow, index, state }) => {
 
-    if(state.skip >= index) return null
-    state.add(index + skipNext)
+    if(state.skipIndex >= index) return null
+    state.add(index + state.skipNext)
 
     const nextRows = new Array(10).fill(0).map((_, i) => objRow[index + (i + 1)])
     if(nextRows.some(o => typeof o === 'undefined')) return null
@@ -257,4 +143,30 @@ const validateRows = row => {
   || isBetweenOrEqual(price_x_donchian_channel_lower, [-1, 1]) 
 }
 
-runClassifier()
+const limit = 1000
+const scaleChunkSize = 200
+const type = 'stocks'
+const interval = '1d'
+const useCache = false
+const shuffle = false
+const balancing = null
+const skipNext = 1
+const strategyDuration = 10
+const sufix = `${type}-${interval}-${limit}`
+
+runClassifier({
+  limit,
+  scaleChunkSize, 
+  type, 
+  interval, 
+  useCache, 
+  shuffle, 
+  balancing, 
+  skipNext, 
+  strategyDuration,
+  sufix, 
+  validateRows, 
+  yCallbackFunc, 
+  xCallbackFunc, 
+  addIndicators
+})

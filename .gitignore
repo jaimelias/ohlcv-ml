@@ -2,6 +2,8 @@
 
 # Ignore test
 dev/
+datasets/
+models/
 
 # Ignore node_modules directory
 node_modules/
