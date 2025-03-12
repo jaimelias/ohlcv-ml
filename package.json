@@ -24,8 +24,8 @@
     "ml-cart": "^2.1.1",
     "ml-knn": "^3.0.0",
     "ml-naivebayes": "^4.0.0",
-    "ohlcv-indicators": "^2.2.9",
-    "xy-scale": "^1.2.5"
+    "ohlcv-indicators": "^3.0.3",
+    "xy-scale": "^1.2.8"
   },
   "devDependencies": {
     "chalk": "^5.3.0",

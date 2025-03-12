@@ -8,7 +8,7 @@ import { parseTrainingXY } from "xy-scale"
 
 //trainX and trainY are 2D arrays of normalized or standard scaled values
 
-export const knn = async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, sufix, limit, inputParams}) => {
+export const knn = async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, sufix, limit, inputParams, minMaxRanges}) => {
    
     const k = (Array.isArray(trainY[0])) ? trainY[0].length + 1 : 2  //number of nearest neighbors (Default: number of labels + 1).
     const model = new KNN(trainX, trainY, { k })
@@ -17,7 +17,7 @@ export const knn = async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, s
     
     const metrics = evaluate2dPredictions(testY, predictions, keyNamesY, true, 'KNN')
 
-    const jsonData = JSON.stringify({model: model.toJSON(), params: {k}, keyNamesY, keyNamesX, limit, inputParams})
+    const jsonData = JSON.stringify({model: model.toJSON(), params: {k}, keyNamesY, keyNamesX, limit, inputParams, minMaxRanges})
 
     await saveFile({fileName: `model-knn-${sufix}.json`, pathName: 'models', jsonData})
 
@@ -25,7 +25,7 @@ export const knn = async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, s
 }
 
 
-export const dt =  async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, sufix, limit, inputParams}) => {
+export const dt =  async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, sufix, limit, inputParams, minMaxRanges}) => {
    
     const params = {
         gainFunction: 'gini',
@@ -39,14 +39,14 @@ export const dt =  async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, s
     const predictions = model.predict(testX)
     
     const metrics = evaluate2dPredictions(testY, predictions.map(v => ([v])), keyNamesY, true, 'Decision Tree')
-    const jsonData = JSON.stringify({model: model.toJSON(), params, keyNamesY, keyNamesX, limit, inputParams})
+    const jsonData = JSON.stringify({model: model.toJSON(), params, keyNamesY, keyNamesX, limit, inputParams, minMaxRanges})
 
     await saveFile({fileName: `model-decision-tree-${sufix}.json`, pathName: 'models', jsonData})
 
     return {metrics, model}
 }
 
-export const nb =  async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, sufix, limit, inputParams}) => {
+export const nb =  async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, sufix, limit, inputParams, minMaxRanges}) => {
    
   const model = new GaussianNB()
   
@@ -54,7 +54,7 @@ export const nb =  async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, s
   const predictions = model.predict(testX)
   
   const metrics = evaluate2dPredictions(testY, predictions.map(v => ([v])), keyNamesY, true, 'Naive Bayes')
-  const jsonData = JSON.stringify({model: model.toJSON(), keyNamesY, keyNamesX, limit, inputParams})
+  const jsonData = JSON.stringify({model: model.toJSON(), keyNamesY, keyNamesX, limit, inputParams, minMaxRanges})
 
   await saveFile({fileName: `model-naive-bayes-${sufix}.json`, pathName: 'models', jsonData})
 
@@ -83,7 +83,6 @@ export const runClassifier = async ({
     balancing,
     strategyDuration,
     skipNext,
-    scaleChunkSize = Infinity,
     sufix, 
     validateRows, 
     yCallbackFunc, 
@@ -109,6 +108,7 @@ export const runClassifier = async ({
   // Process symbols concurrently.
 
   let inputParams
+  let minMaxRanges
 
   for(let index = 0; index < allSymbols.length; index++)
   {
@@ -117,51 +117,49 @@ export const runClassifier = async ({
     if (!ohlcv) continue;
 
     
-    const indicators = addIndicators(ohlcv.slice(-(limit + 250)))
+    const indicators = addIndicators(ohlcv, limit)
 
     if(!inputParams) inputParams = indicators.inputParams
-
-    const arrObj = indicators.getData().slice(-limit)
+    if(!minMaxRanges) minMaxRanges = indicators.minMaxRanges
 
     if (index === 0) {
-      console.log(arrObj[0]);
+      console.log(indicators.arrObj.length, limit, indicators.arrObj[0]);
     }
 
-    for (let i = 0; i < arrObj.length; i += scaleChunkSize) {
-      const chunk = arrObj.slice(i, i + scaleChunkSize)
-
-      const {
-        trainX,
-        trainY,
-        testX, 
-        testY,
-        configX,
-        configY
-      } = parseTrainingXY({
-        arrObj: chunk,
-        trainingSplit: 0.9,
-        validateRows,
-        yCallbackFunc,
-        xCallbackFunc,
-        state: new StrategyClass({skipNext, strategyDuration}),
-        shuffle,
-        balancing
-      })
-
-      if(!configXMatrix.hasOwnProperty(symbol))
-      {
-        configXMatrix[symbol] = [];
-        configYMatrix[symbol] = [];        
+    const {
+      trainX,
+      trainY,
+      testX, 
+      testY,
+      configX,
+      configY
+    } = parseTrainingXY({
+      arrObj: indicators.arrObj,
+      trainingSplit: 0.9,
+      validateRows,
+      yCallbackFunc,
+      xCallbackFunc,
+      state: new StrategyClass({skipNext, strategyDuration}),
+      shuffle,
+      balancing,
+      customMinMaxRanges: {
+        ...indicators.minMaxRanges
       }
+    })
 
-      configXMatrix[symbol].push(configX);
-      configYMatrix[symbol].push(configY);
-      trainXMatrix.push(...trainX);
-      trainYMatrix.push(...trainY);
-      testXMatrix.push(...testX);
-      testYMatrix.push(...testY);
-
+    if(!configXMatrix.hasOwnProperty(symbol))
+    {
+      configXMatrix[symbol] = [];
+      configYMatrix[symbol] = [];   
     }
+
+    configXMatrix[symbol].push(configX);
+    configYMatrix[symbol].push(configY);
+    trainXMatrix.push(...trainX);
+    trainYMatrix.push(...trainY);
+    testXMatrix.push(...testX);
+    testYMatrix.push(...testY);
+
   }
 
   const firstSymbol = allSymbols[0]
@@ -179,6 +177,7 @@ export const runClassifier = async ({
     keyNamesX,
     limit,
     inputParams,
+    minMaxRanges,
     sufix
   };
 

@@ -3,22 +3,20 @@ import { runClassifier } from "./src/classifiers.js"
 import { isBetweenOrEqual } from "./studies/utilities/numbers.js"
 
 
-const addIndicators = inputOhlcv => {
+const addIndicators = (inputOhlcv, limit) => {
 
-    const indicators = new OHLCV_INDICATORS({input: inputOhlcv})
+    const indicators = new OHLCV_INDICATORS({input: inputOhlcv.slice(-(limit*1.5)), precision: false})
     const maDiffArgs = {stdDev: 2, scale: 0.01, lag: 0}
 
     indicators
-        .macd()
         .dateTime()
         .ema(9, {diff: {targets: ['close'], maDiffArgs}})
         .ema(21, {diff: {targets: ['close', 'ema_9'], maDiffArgs}})
         .ema(50, {diff: {targets: ['close', 'ema_9', 'ema_21'], maDiffArgs}})
         .sma(100, {diff: {targets: ['close', 'ema_9', 'ema_21', 'ema_50'], maDiffArgs}})
         .sma(200, {diff: {targets: ['close', 'ema_9', 'ema_21', 'ema_50', 'sma_100'], maDiffArgs}})
-        .volumeOscillator(3, 10, {scale: 0.05})
-        .rsi(8, {scale: 2.5})
-        .rsi(14, {scale: 2.5})
+        .rsi(8, {scale: 2.5, lag: 5})
+        .rsi(14, {scale: 2.5, lag: 5})
         .bollingerBands(20, 1.5, {scale: 0.025, height: true})
         .donchianChannels(20, 2, {scale: 0.025, height: true})
         .crossPairs([
@@ -28,14 +26,21 @@ const addIndicators = inputOhlcv => {
           {fast: 'price', slow: 'donchian_channel_lower'}
         ])
 
-    return indicators
+    const arrObj = indicators.getData().slice(-limit)
+    const {inputParams, minMaxRanges} = indicators
+
+    return {
+      arrObj,
+      inputParams,
+      minMaxRanges
+    }
 }
 
 const xCallbackFunc = ({ objRow, index, state }) => {
   
   const curr = objRow[index]
 
-  const emaDiffArray = [
+  const maDiffArr = [
     'ema_9_diff_close',
     'ema_21_diff_close',
     'ema_21_diff_ema_9',
@@ -52,19 +57,18 @@ const xCallbackFunc = ({ objRow, index, state }) => {
     'sma_200_diff_sma_100'
   ]
 
-  const barriers = [
+  const rsiArr = [
     'rsi_14', 
     'rsi_8',
     'rsi_sma_8',
     'rsi_sma_14',
-    'volume_oscillator'
   ]
 
+  
+
   const requiredKeys = [
-    ...barriers,
-    ...emaDiffArray,
-    //'donchian_channel_range_close',
-    'macd_diff_x_macd_dea',
+    ...rsiArr,
+    ...maDiffArr
   ]
 
   const output = {}
@@ -144,7 +148,6 @@ const validateRows = row => {
 }
 
 const limit = 100000
-const scaleChunkSize = Infinity
 const type = 'crypto'
 const interval = '5m'
 const useCache = false
@@ -156,7 +159,6 @@ const sufix = `${type}-${interval}-${limit}`
 
 runClassifier({
   limit,
-  scaleChunkSize,
   type, 
   interval, 
   useCache, 
