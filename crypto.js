@@ -3,9 +3,9 @@ import { runClassifier } from "./src/classifiers.js"
 import { isBetweenOrEqual } from "./studies/utilities/numbers.js"
 
 
-const addIndicators = (inputOhlcv, limit) => {
+const addIndicators = (inputOhlcv, limit, symbol) => {
 
-    const indicators = new OHLCV_INDICATORS({input: inputOhlcv.slice(-(limit*1.5)), precision: false})
+    const indicators = new OHLCV_INDICATORS({input: inputOhlcv.slice(-(limit*1.5)), precision: false, ticker: symbol})
     const maDiffArgs = {stdDev: 2, scale: 0.01, lag: 0}
 
     indicators
@@ -15,8 +15,8 @@ const addIndicators = (inputOhlcv, limit) => {
         .ema(50, {diff: {targets: ['close', 'ema_9', 'ema_21'], maDiffArgs}})
         .sma(100, {diff: {targets: ['close', 'ema_9', 'ema_21', 'ema_50'], maDiffArgs}})
         .sma(200, {diff: {targets: ['close', 'ema_9', 'ema_21', 'ema_50', 'sma_100'], maDiffArgs}})
-        .rsi(8, {scale: 2.5, lag: 5})
-        .rsi(14, {scale: 2.5, lag: 5})
+        .rsi(8, {scale: 2.5})
+        .rsi(14, {scale: 2.5})
         .bollingerBands(20, 1.5, {scale: 0.025, height: true})
         .donchianChannels(20, 2, {scale: 0.025, height: true})
         .crossPairs([
@@ -39,47 +39,15 @@ const addIndicators = (inputOhlcv, limit) => {
 const xCallbackFunc = ({ objRow, index, state }) => {
   
   const curr = objRow[index]
-
-  const maDiffArr = [
-    'ema_9_diff_close',
-    'ema_21_diff_close',
-    'ema_21_diff_ema_9',
-    'ema_50_diff_close',
-    'ema_50_diff_ema_9',
-    'ema_50_diff_ema_21',
-    'sma_100_diff_close',
-    'sma_100_diff_ema_9',
-    'sma_100_diff_ema_21',
-    'sma_100_diff_ema_50',
-    'sma_200_diff_ema_9',
-    'sma_200_diff_ema_21',
-    'sma_200_diff_ema_50',
-    'sma_200_diff_sma_100'
-  ]
-
-  const rsiArr = [
-    'rsi_14', 
-    'rsi_8',
-    'rsi_sma_8',
-    'rsi_sma_14',
-  ]
-
-  
-
-  const requiredKeys = [
-    ...rsiArr,
-    ...maDiffArr
-  ]
-
   const output = {}
 
   for(let k in curr)
   {
-    if(requiredKeys.includes(k))
+    if(state.inputKeyNames.includes(k))
     {
       output[k] = curr[k]
     }
-    else if(requiredKeys.some(v => k.startsWith(v)) && k.includes('_lag_'))
+    else if(state.inputKeyNames.some(v => k.startsWith(v)) && k.includes('_lag_'))
     {
       output[k] = curr[k]
     }
@@ -150,23 +118,46 @@ const validateRows = row => {
 const limit = 100000
 const type = 'crypto'
 const interval = '5m'
-const useCache = false
 const shuffle = false
 const balancing = null
 const skipNext = 6
 const strategyDuration = 10
-const sufix = `${type}-${interval}-${limit}`
+const sufix = `${type}-${interval}`
+const inputKeyNames = [
+  ...[
+    'ema_9_diff_close',
+    'ema_21_diff_close',
+    'ema_21_diff_ema_9',
+    'ema_50_diff_close',
+    'ema_50_diff_ema_9',
+    'ema_50_diff_ema_21',
+    'sma_100_diff_close',
+    'sma_100_diff_ema_9',
+    'sma_100_diff_ema_21',
+    'sma_100_diff_ema_50',
+    'sma_200_diff_ema_9',
+    'sma_200_diff_ema_21',
+    'sma_200_diff_ema_50',
+    'sma_200_diff_sma_100'
+  ],
+  ...[
+    'rsi_14', 
+    'rsi_8',
+    'rsi_sma_8',
+    'rsi_sma_14',
+  ]
+]
 
 runClassifier({
   limit,
   type, 
   interval, 
-  useCache, 
   shuffle, 
   balancing, 
   skipNext, 
   strategyDuration,
-  sufix, 
+  sufix,
+  inputKeyNames,
   validateRows, 
   yCallbackFunc, 
   xCallbackFunc, 

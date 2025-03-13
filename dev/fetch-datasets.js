@@ -1,17 +1,23 @@
-import { saveFile, nasdaq100List, cryptoList, etfList, resetDirectory} from "../src/utilities.js"
+import { saveFile, nasdaq100List, sp500List, cryptoList, etfList, resetDirectory} from "../src/utilities.js"
 import { getNasdaqOHLCV, NASDAQ_INTERVALS, CRYPTO_INTERVALS } from "./fetch-nasdaq.js"
 import { fetchBinanceKlines } from "./fetch-binance.js"
 
-export const fetchDatasets = async (type, interval) => {
+export const fetchDatasets = async (type, interval, limit) => {
 
-    if(!type) throw Error('Error: "type" param is required: "npm run fetch-datasets stocks 1d"')
-    if(!interval) throw Error('Error: "interval" param is required: "npm run fetch-datasets stocks 1d"')
+    if(!type) throw Error('Error: "type" param is required. "npm run fetch-datasets stocks 1d 500"')
+    if(!interval) throw Error('Error: "interval" param is required. "npm run fetch-datasets stocks 1d 500"')
+
+    limit = Number(limit)
+
+    if(isNaN(limit) || limit <= 0) {
+        console.error({type, interval, limit})
+        throw new Error('Error: "limit" param must be a positive number. "npm run fetch-datasets stocks 1d 500"')
+    }
 
     const output = []
-    const limit = 500000
     
     const assets = {
-        stocks: nasdaq100List,
+        stocks: sp500List,
         crypto: cryptoList,
         etf: etfList
     }
@@ -45,9 +51,12 @@ export const fetchDatasets = async (type, interval) => {
         
         const ohlcv = (type === 'crypto') ? await fetchBinanceKlines(symbol, interval, limit) : await getNasdaqOHLCV({symbol, interval, type, limit})
 
-        output.push([symbol, ohlcv.data.length])
+        if(!ohlcv || !Array.isArray(ohlcv.data)){
+            console.error(`Error: ${symbol}`)
+            continue
+        }
 
-        if(!Array.isArray(ohlcv.data)) continue
+        output.push([symbol, ohlcv.data.length])
         
         await saveFile({fileName: `${symbol}.json`, pathName, jsonData: JSON.stringify(ohlcv.data)})
         matrix.push(symbol)
@@ -60,6 +69,7 @@ export const fetchDatasets = async (type, interval) => {
 }
 
 
-const typeArg = process.argv[2];
-const intervalArg = process.argv[3];
-fetchDatasets(typeArg, intervalArg)
+const typeArg = process.argv[2]
+const intervalArg = process.argv[3]
+const limitArg = process.argv[4]
+fetchDatasets(typeArg, intervalArg, limitArg)

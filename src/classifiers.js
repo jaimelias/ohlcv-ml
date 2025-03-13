@@ -5,68 +5,79 @@ import { saveFile, loadFile } from "./utilities.js";
 import { DecisionTreeClassifier } from 'ml-cart';
 import { parseTrainingXY } from "xy-scale"
 
+import dotenv from 'dotenv';
+dotenv.config();
 
-//trainX and trainY are 2D arrays of normalized or standard scaled values
-
-export const knn = async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, sufix, limit, inputParams, minMaxRanges}) => {
-   
-    const k = (Array.isArray(trainY[0])) ? trainY[0].length + 1 : 2  //number of nearest neighbors (Default: number of labels + 1).
-    const model = new KNN(trainX, trainY, { k })
-
-    const predictions = model.predict(testX)
-    
-    const metrics = evaluate2dPredictions(testY, predictions, keyNamesY, true, 'KNN')
-
-    const jsonData = JSON.stringify({model: model.toJSON(), params: {k}, keyNamesY, keyNamesX, limit, inputParams, minMaxRanges})
-
-    await saveFile({fileName: `model-knn-${sufix}.json`, pathName: 'models', jsonData})
-
-    return {metrics, model}
-}
+const {KV_AUTORIZATION} = process.env
 
 
-export const dt =  async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, sufix, limit, inputParams, minMaxRanges}) => {
-   
-    const params = {
+export const trainModel = async (modelType, dataParams) => {
+
+  const {trainX, trainY, testX, testY, keyNamesY, keyNamesX, sufix, inputParams, minMaxRanges} = dataParams
+
+  let params = {}
+  let model
+  const flatY = (Array.isArray(trainY[0])) ? true : false
+  const fittedTrainY = (flatY) ? trainY.flat() : trainY
+  
+  switch (modelType) {
+    case 'knn':
+
+      params = {
+        k: (Array.isArray(trainY[0])) ? trainY[0].length + 1 : 2
+      }
+
+      model = new KNN(trainX, fittedTrainY, params)
+      break;
+    case 'decision-tree':
+
+        params = {
         gainFunction: 'gini',
         maxDepth: 10,
         minNumSamples: 3,
-    }
+      }
 
-    const model = new DecisionTreeClassifier(params)
-    
-    model.train(trainX, trainY.flat())
-    const predictions = model.predict(testX)
-    
-    const metrics = evaluate2dPredictions(testY, predictions.map(v => ([v])), keyNamesY, true, 'Decision Tree')
-    const jsonData = JSON.stringify({model: model.toJSON(), params, keyNamesY, keyNamesX, limit, inputParams, minMaxRanges})
+      model = new DecisionTreeClassifier(params)
+      model.train(trainX, fittedTrainY)
+      break;
+    case 'naive-bayes':
+      model = new GaussianNB();
+      model.train(trainX, fittedTrainY)
+      break;
+    default:
+      throw new Error(`Unsupported model type: ${modelType}`);
+  }
 
-    await saveFile({fileName: `model-decision-tree-${sufix}.json`, pathName: 'models', jsonData})
-
-    return {metrics, model}
-}
-
-export const nb =  async ({trainX, trainY, testX, testY, keyNamesY, keyNamesX, sufix, limit, inputParams, minMaxRanges}) => {
-   
-  const model = new GaussianNB()
-  
-  model.train(trainX, trainY.flat())
   const predictions = model.predict(testX)
-  
-  const metrics = evaluate2dPredictions(testY, predictions.map(v => ([v])), keyNamesY, true, 'Naive Bayes')
-  const jsonData = JSON.stringify({model: model.toJSON(), keyNamesY, keyNamesX, limit, inputParams, minMaxRanges})
 
-  await saveFile({fileName: `model-naive-bayes-${sufix}.json`, pathName: 'models', jsonData})
+  const fitPredictions = (flatY) ? predictions.map(v => ([v])) : predictions
+  const metrics = evaluate2dPredictions(testY, fitPredictions, keyNamesY, true, modelType.toUpperCase())
+  const jsonData = JSON.stringify({model: model.toJSON(), keyNamesY, keyNamesX, inputParams, minMaxRanges})
+  const fileName = `model-${modelType}-${sufix}.json`
+  await saveFile({fileName, pathName: 'models', jsonData})
+
+  const kvStorage = await fetch(`https://api.gpu.trading/v1/kv/CACHE/${fileName}`, {
+    method: 'POST',
+    body: jsonData,
+    headers: {
+      Authorization: KV_AUTORIZATION
+    }
+  })
+
+  console.log(`${modelType} stored in KV ${kvStorage.statusText}`)
 
   return {metrics, model}
+
 }
 
+
 class StrategyClass  {
-  constructor({skipNext, strategyDuration})
+  constructor({skipNext, strategyDuration, inputKeyNames})
   {
     this.skipIndex = 0
     this.skipNext = skipNext
     this.strategyDuration = strategyDuration
+    this.inputKeyNames = inputKeyNames
   }
   add(idx)
   {
@@ -78,28 +89,17 @@ export const runClassifier = async ({
     limit, 
     type, 
     interval, 
-    useCache, 
     shuffle, 
     balancing,
     strategyDuration,
     skipNext,
-    sufix, 
+    sufix,
+    inputKeyNames,
     validateRows, 
     yCallbackFunc, 
     xCallbackFunc, 
     addIndicators
   }) => {
-
-  if (useCache) {
-    const cachedTrainingTestData = await loadFile({ fileName: `cache-${sufix}.json`, pathName: 'datasets' });
-    if (cachedTrainingTestData) {
-      console.log('running classifiers from cached data');
-      await knn(cachedTrainingTestData);
-      await nb(cachedTrainingTestData);
-      await dt(cachedTrainingTestData);
-      return true;
-    }
-  }
 
   const allSymbols = await loadFile({ fileName: 'matrix.json', pathName: `datasets/${type}/${interval}` });
   let trainXMatrix = [], trainYMatrix = [], testXMatrix = [], testYMatrix = [];
@@ -114,10 +114,9 @@ export const runClassifier = async ({
   {
     const symbol = allSymbols[index]
     const ohlcv = await loadFile({ fileName: `${symbol}.json`, pathName: `datasets/${type}/${interval}` });
-    if (!ohlcv) continue;
-
+    if (!Array.isArray(ohlcv) || ohlcv.length < limit) continue;
     
-    const indicators = addIndicators(ohlcv, limit)
+    const indicators = addIndicators(ohlcv, limit, symbol)
 
     if(!inputParams) inputParams = indicators.inputParams
     if(!minMaxRanges) minMaxRanges = indicators.minMaxRanges
@@ -139,7 +138,7 @@ export const runClassifier = async ({
       validateRows,
       yCallbackFunc,
       xCallbackFunc,
-      state: new StrategyClass({skipNext, strategyDuration}),
+      state: new StrategyClass({skipNext, strategyDuration, inputKeyNames}),
       shuffle,
       balancing,
       customMinMaxRanges: {
@@ -175,24 +174,13 @@ export const runClassifier = async ({
     testY: testYMatrix,
     keyNamesY,
     keyNamesX,
-    limit,
     inputParams,
     minMaxRanges,
     sufix
   };
 
-  if (!useCache) {
-    await saveFile({
-      fileName: `cache-${sufix}.json`,
-      pathName: 'datasets',
-      jsonData: JSON.stringify(trainingTestingData)
-    });
-  }
-
-  
-
-  console.log('running classifiers from files');
-  await knn(trainingTestingData);
-  await dt(trainingTestingData);
-  await nb(trainingTestingData);
+  //await knn(trainingTestingData);
+  await trainModel('knn', trainingTestingData);
+  await trainModel('decision-tree', trainingTestingData);
+  await trainModel('naive-bayes', trainingTestingData);
 };
