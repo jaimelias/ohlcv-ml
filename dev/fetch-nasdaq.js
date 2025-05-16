@@ -7,7 +7,7 @@ const {NASDAQ_API} = process.env
 export const NASDAQ_INTERVALS = ['5min', '10min', '15min',  '30min', '45min', '60min', '1d']
 export const CRYPTO_INTERVALS = ['10s', '1m', '5m', '15m', '30m', '1h', '4h', '8h', '1d', '7d', '30d']
 
-export const getNasdaqOHLCV = async ({symbol, interval, type, limit}) => {
+export const fetchNasdaqOHLCV = async ({symbol, interval, type, limit}) => {
 
     const url = new URL(`${NASDAQ_API}/market-data/ohlcv`)
     url.searchParams.append('symbol', symbol)
@@ -19,8 +19,10 @@ export const getNasdaqOHLCV = async ({symbol, interval, type, limit}) => {
     const {status, statusText} = response
 
     if(!response.ok){
-        console.error('ERROR', {status, statusText, symbol, type, interval, limit, url})
-        return []
+        
+        const errorMessage = `Error ${status} fetching ${limit} ${type}/${symbol} (${interval}): ${statusText}`
+        console.error(errorMessage)
+        return {status, error: errorMessage}
     }
 
     return await response.json()

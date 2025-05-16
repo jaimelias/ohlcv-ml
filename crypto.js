@@ -1,49 +1,16 @@
-import OHLCV_INDICATORS from "ohlcv-indicators"
 import { runClassifier } from "./src/classifiers.js"
 import { isBetweenOrEqual } from "./studies/utilities/numbers.js"
 
 
-const addIndicators = (inputOhlcv, limit, symbol) => {
-
-    const indicators = new OHLCV_INDICATORS({input: inputOhlcv.slice(-(limit*1.5)), precision: false, ticker: symbol})
-    const maDiffArgs = {stdDev: 2, scale: 0.01, lag: 0}
-
-    indicators
-        .dateTime()
-        .ema(9, {diff: {targets: ['close'], maDiffArgs}})
-        .ema(21, {diff: {targets: ['close', 'ema_9'], maDiffArgs}})
-        .ema(50, {diff: {targets: ['close', 'ema_9', 'ema_21'], maDiffArgs}})
-        .sma(100, {diff: {targets: ['close', 'ema_9', 'ema_21', 'ema_50'], maDiffArgs}})
-        .sma(200, {diff: {targets: ['close', 'ema_9', 'ema_21', 'ema_50', 'sma_100'], maDiffArgs}})
-        .rsi(8, {scale: 2.5})
-        .rsi(14, {scale: 2.5})
-        .bollingerBands(20, 1.5, {scale: 0.025, height: true})
-        .donchianChannels(20, 2, {scale: 0.025, height: true})
-        .crossPairs([
-          {fast: 'price', slow: 'ema_50'},
-          {fast: 'price', slow: 'sma_100'},
-          {fast: 'price', slow: 'sma_200'},
-          {fast: 'price', slow: 'donchian_channel_lower'}
-        ])
-
-    const arrObj = indicators.getData().slice(-limit)
-    const {inputParams, minMaxRanges} = indicators
-
-    return {
-      arrObj,
-      inputParams,
-      minMaxRanges
-    }
-}
-
 const xCallbackFunc = ({ objRow, index, state }) => {
   
   const curr = objRow[index]
-  const output = {}
+  const strategy = getStrategyName(objRow, index)
+  const output = {strategy}
 
   for(let k in curr)
   {
-    if(state.inputKeyNames.includes(k))
+    if(state.inputKeyNames.includes(k) || k.includes('_diff_'))
     {
       output[k] = curr[k]
     }
@@ -53,93 +20,93 @@ const xCallbackFunc = ({ objRow, index, state }) => {
     }
   }
 
+  if(index === 0)
+  {
+    console.log(output)
+  }
+
   return output
 }
 
-  const yCallbackFunc = ({ objRow, index, state }) => {
+const yCallbackFunc = ({ objRow, index, state }) => {
+  if (state.skipIndex >= index) return null;
+  state.add(index + state.skipNext);
 
-    if(state.skipIndex >= index) return null
-    state.add(index + state.skipNext)
+  const nextRows = new Array(state.strategyDuration)
+    .fill(0)
+    .map((_, i) => objRow[index + (i + 1)]);
+  if (nextRows.some(o => typeof o === 'undefined')) return null;
 
-    const nextRows = new Array(state.strategyDuration).fill(0).map((_, i) => objRow[index + (i + 1)])
-    if(nextRows.some(o => typeof o === 'undefined')) return null
+  const {
+    close,
+  } = objRow[index];
 
-    const {
-      close,
-      bollinger_bands_upper, 
-      donchian_channel_upper, 
-      bollinger_bands_middle, 
-      donchian_channel_basis
-    } = objRow[index]
+  // Find the take-profit index: when price crosses above the bands
+  const tpIndex = nextRows.findIndex(o => o.high > close && (o.high > o.donchian_channel_upper))
 
-    const bbMid = (bollinger_bands_upper-bollinger_bands_middle)/bollinger_bands_middle
-    const dcMid = (donchian_channel_upper-donchian_channel_basis)/donchian_channel_basis
-    const mid = Math.max(bbMid, dcMid)
-    
-    //price has crosses up bollinger_bands, donchian_channel_upper or rsi_14 >= 70
-    const tpIndex = nextRows.findIndex(o => o.high > close && (o.high >= bollinger_bands_upper || o.high >= donchian_channel_upper ) )
-    const slIndex = nextRows.findIndex(o => Math.abs((o.low-close)/o.low) >= mid)
+  // If a take-profit event is found, calculate the stop-loss level
+  if (tpIndex !== -1) {
+    // Use the take-profit row's high as the target price
+    const targetPrice = nextRows[tpIndex].donchian_channel_upper
 
 
-    if (tpIndex === -1 || tpIndex === slIndex) {
-      // Either no TP is set or TP and SL positions are the same.
-      return { side: 0 };
+    // Stop-loss is set at half the distance from the close to targetPrice
+    const stopLoss = close - (targetPrice - close) / 2;
+    // Find the first occurrence (if any)
+
+    const slIndex = nextRows.findIndex((o, i) => i < tpIndex && o.low < stopLoss);
+    // If stop loss was hit before take profit, return side: 0
+    if (slIndex !== -1) {
+      if(slIndex < tpIndex)
+      {
+        return { side: 0 };
+      }
+      else
+      {
+        return {side: 1}
+      }
     }
-    
-    if (tpIndex >= 0 && slIndex === -1) {
-      // A valid TP exists but no SL is set.
-      return { side: 1 };
-    }
-    
-    if (tpIndex >= 0 && slIndex >= 0) {
-      // Both TP and SL are set. Compare their positions.
-      return tpIndex < slIndex ? { side: 1 } : { side: 0 };
-    }
-    
-    // Optionally, add a default case if needed.
-    return { side: 0 };
-}
-
-const validateRows = row => {
+    // Otherwise, take profit is reached first
+    return { side: 1 };
+  }
   
-   const {
-    price_x_ema_50,
-    price_x_sma_100,
-    price_x_sma_200,
-    price_x_donchian_channel_lower
-  } = row
+  return { side: 0 };
+};
 
-  return isBetweenOrEqual(price_x_ema_50, [1, 2]) 
-  || isBetweenOrEqual(price_x_sma_100, [1, 2]) 
-  || isBetweenOrEqual(price_x_sma_200, [1, 2]) 
-  || isBetweenOrEqual(price_x_donchian_channel_lower, [1, 2]) 
+
+const validateRows = ({ objRow, index, state }) => {
+  
+  return getStrategyName(objRow, index) !== null
 }
 
-const limit = 100000
-const type = 'crypto'
-const interval = '5m'
+
+const testInputParams = [
+  {"key":"macd","params":[12,26,9,{"target":"close","lag":0}]},
+  {"key":"ema","params":["ema",9,{"target":"close","lag":0}]},
+  {"key":"ema","params":["ema",21,{"target":"close","lag":0}]},
+  {"key":"ema","params":["ema",50,{"target":"close","lag":0}]},
+  {"key":"sma","params":["sma",100,{"target":"close","lag":0}]},
+  {"key":"sma","params":["sma",200,{"target":"close","lag":0}]},
+  {"key":"rsi","params":[8,{"target":"close","lag":0}]},
+  {"key":"rsi","params":[14,{"target":"close","lag":0}]},
+  {"key":"bollingerBands","params":[20,2,{"target":"close","height":false,"range":[],"lag":0}]},
+  {"key":"donchianChannels","params":[25,2,{"height":false,"range":[],"lag":0}]},
+  {"key":"scaler","params":[200,["open","high","low","close","ema_9","ema_21","ema_50","sma_100","sma_200","bollinger_bands_upper","bollinger_bands_lower","donchian_channel_upper","donchian_channel_lower"],"minmax",true,[0,1],0]}
+]
+const assetGroups = [
+  [
+    {symbol: 'DXY', interval: '1d', type: 'index', limit: 2000, inputParams: testInputParams },
+    {symbol: 'BTC', interval: '1d', type: 'crypto', limit: 2000, inputParams: testInputParams },
+    {symbol: 'BTC', interval: '5m', type: 'crypto', limit: 100000, inputParams: testInputParams }, 
+    {symbol: 'BTC', interval: '1h', type: 'crypto', limit: 10000, inputParams: testInputParams }
+  ]
+]
+
 const shuffle = false
 const balancing = null
-const skipNext = 6
-const strategyDuration = 10
-const sufix = `${type}-${interval}`
+const skipNext = 12
+const strategyDuration = 40
 const inputKeyNames = [
-  ...[
-    'ema_9_diff_close',
-    'ema_21_diff_close',
-    'ema_21_diff_ema_9',
-    'ema_50_diff_close',
-    'ema_50_diff_ema_9',
-    'ema_50_diff_ema_21',
-    'sma_100_diff_close',
-    'sma_100_diff_ema_9',
-    'sma_100_diff_ema_21',
-    'sma_100_diff_ema_50',
-    'sma_200_diff_ema_9',
-    'sma_200_diff_ema_21',
-    'sma_200_diff_ema_50',
-    'sma_200_diff_sma_100'
-  ],
   ...[
     'rsi_14', 
     'rsi_8',
@@ -148,18 +115,29 @@ const inputKeyNames = [
   ]
 ]
 
+const getStrategyName = (objRow, index) => {
+
+  const curr = objRow[index]
+  const prev = objRow[index - 1]
+
+  if(typeof prev === 'undefined') return null
+
+  if(curr.macd_diff_x_macd_dea === 1 && curr.rsi_14 > 50 && curr.rsi_14 > prev.rsi_14)
+  {
+    return 1
+  }
+
+  return null
+}
+
 runClassifier({
-  limit,
-  type, 
-  interval, 
+  assetGroups,
   shuffle, 
   balancing, 
   skipNext, 
   strategyDuration,
-  sufix,
   inputKeyNames,
   validateRows, 
   yCallbackFunc, 
   xCallbackFunc, 
-  addIndicators
 })

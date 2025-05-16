@@ -1,5 +1,5 @@
 import { saveFile, nasdaq100List, sp500List, cryptoList, etfList, resetDirectory} from "../src/utilities.js"
-import { getNasdaqOHLCV, NASDAQ_INTERVALS, CRYPTO_INTERVALS } from "./fetch-nasdaq.js"
+import { fetchNasdaqOHLCV, NASDAQ_INTERVALS, CRYPTO_INTERVALS } from "./fetch-nasdaq.js"
 import { fetchBinanceKlines } from "./fetch-binance.js"
 
 export const fetchDatasets = async (type, interval, limit) => {
@@ -49,10 +49,9 @@ export const fetchDatasets = async (type, interval, limit) => {
     {
         const symbol = arr[x]
         
-        const ohlcv = (type === 'crypto') ? await fetchBinanceKlines(symbol, interval, limit) : await getNasdaqOHLCV({symbol, interval, type, limit})
+        const ohlcv = (type === 'crypto') ? await fetchBinanceKlines({symbol, interval, limit}) : await fetchNasdaqOHLCV({symbol, interval, type, limit})
 
-        if(!ohlcv || !Array.isArray(ohlcv.data)){
-            console.error(`Error: ${symbol}`)
+        if(typeof ohlcv !== 'object' || !ohlcv.hasOwnProperty('status') || ohlcv.status !== 200){
             continue
         }
 

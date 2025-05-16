@@ -4,6 +4,7 @@ import chalk from 'chalk'
 //the following code provides a logic an accurate evaluation for 2d array predicitons and test labels
 
 export const evaluate2dPredictions = (testY, predictions, keyNamesY, log = false, modelName = 'default') => {
+
   if (testY.length !== predictions.length) {
       throw new Error("testY and predictions must have the same length.");
   }

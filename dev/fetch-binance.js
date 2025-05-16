@@ -1,4 +1,4 @@
-export const fetchBinanceKlines = async (symbol = 'BTC', interval = '1m', limit = 1000) => {
+export const fetchBinanceKlines = async ({symbol = 'BTC', interval = '1m', limit = 1000, type = 'crypto'}) => {
     try {
         const intervalInMs = intervalToMilliseconds(interval);
         if (!intervalInMs) throw new Error('Invalid interval format');
@@ -19,7 +19,7 @@ export const fetchBinanceKlines = async (symbol = 'BTC', interval = '1m', limit 
         const responses = await Promise.all(responsePromises);
 
         const dataPromises = responses.map(resp => {
-            if (!resp.ok) throw new Error(`${resp.status}: ${resp.statusText}`)
+            if (!resp.ok) throw new Error(`Error ${resp.status} fetching ${limit} ${type}/${symbol} (${interval}): ${resp.statusText}`)
             return resp.json()
         })
 
@@ -36,7 +36,7 @@ export const fetchBinanceKlines = async (symbol = 'BTC', interval = '1m', limit 
         
         return {status: 200, data}
     } catch (error) {
-        console.error('Error fetching Binance klines:', error.message);
+        console.error(error.message)
        return {status: 500, data: [], error: error.message}
     }
 };
@@ -98,7 +98,7 @@ const yyyymmddFromTimeStamp = (timestamp, interval) => {
     const d = String(date.getUTCDate()).padStart(2, '0'); // Día del mes
 
     if (unit === 'd' || unit === 'w' || unit === 'M') {
-        return `${y}-${m}-${d}`; // Devuelve sólo la fecha
+        return `${y}-${m}-${d} 00:00:00`; // Devuelve sólo la fecha
     } else {
         // Construcción de hora, minutos y segundos
         const h = String(date.getUTCHours()).padStart(2, '0');
