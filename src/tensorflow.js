@@ -69,6 +69,7 @@ export class TensorFlowClassifier {
     if(!optimizers.hasOwnProperty(optimizer)) throw new Error(`Invalid optimizer: "${optimizer}". Available options: ${JSON.stringify(Object.keys(optimizers))}`)
 
     const loss = numClasses > 1 ? 'categoricalCrossentropy' : 'binaryCrossentropy';
+
     this.model.compile({
       optimizer: optimizers[optimizer](learningRate),
       loss,
@@ -84,7 +85,7 @@ export class TensorFlowClassifier {
     // Early stopping callback monitoring validation loss.
     const earlyStopCallback = tf.callbacks.earlyStopping({
       monitor: 'val_loss',
-      patience: this.params.patience || 20,
+      patience: this.params.patience || 30,
       verbose: 1
     });
 

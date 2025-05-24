@@ -1,13 +1,12 @@
 import KNN from "ml-knn"
 import { GaussianNB } from 'ml-naivebayes'
 import {evaluate2dPredictions} from './evaluate-2d-predictions.js'
-import { saveFile, loadFile, loadOhlcv } from "./utilities.js"
+import { saveFile, loadFile, loadOhlcv, resetDirectory } from "./utilities.js"
 import { DecisionTreeClassifier } from 'ml-cart'
 import { parseTrainingXY } from "xy-scale"
 import TensorFlowClassifier from "./tensorflow.js"
 import dotenv from 'dotenv'
 import { mergeMultiTimeframes } from "merge-multi-timeframe"
-import OHLCV_INDICATORS from "ohlcv-indicators"
 import xxhash64 from 'xxhashjs'
 
 dotenv.config();
@@ -17,7 +16,7 @@ const {KV_AUTORIZATION} = process.env
 
 export const trainModel = async (modelType, dataParams) => {
 
-  const {trainX, trainY, testX, testY, keyNamesY, keyNamesX, sufix, inputParams} = dataParams
+  const {trainX, trainY, testX, testY, keyNamesY, keyNamesX, inputParams, scaledGroups} = dataParams
 
   let params = {}
   let model
@@ -53,11 +52,11 @@ export const trainModel = async (modelType, dataParams) => {
         isStrModelJson = false
         params = {
           hiddenUnits: 128,
-          activation: 'relu', //relu, sigmoid, tanh, elu, selu, 
-          optimizer: 'sgd', //adam, sgd, adagrad, adamax, rmsprop
+          activation: 'sigmoid', //relu, sigmoid, tanh, elu, selu, 
+          optimizer: 'adam', //adam, sgd, adagrad, adamax, rmsprop
           batchSize: 32,
-          epochs: 150,
-          learningRate: 0.001
+          epochs: 600,
+          learningRate: 0.0001
         }
         model = new TensorFlowClassifier(params)
         await model.train(trainX, fittedTrainY)
@@ -66,7 +65,7 @@ export const trainModel = async (modelType, dataParams) => {
       throw new Error(`Unsupported model type: ${modelType}`);
   }
 
-  const fileName = `model-${modelType}-${sufix}.json`
+  const fileName = `model-${modelType}.json`
   const predictions = model.predict(testX)
   const fitPredictions = (flatY) ? predictions.map(v => ([v])) : predictions
   const metrics = evaluate2dPredictions(testY, fitPredictions, keyNamesY, true, modelType.toUpperCase())
@@ -75,8 +74,7 @@ export const trainModel = async (modelType, dataParams) => {
 
   if(isStrModelJson)
   {
-    strModel = JSON.stringify({model: model.toJSON(), keyNamesY, keyNamesX, inputParams})
-    await saveFile({fileName, pathName: 'models', jsonData: strModel})
+    await saveFile({fileName, pathName: 'models', data: {model: model.toJSON(), keyNamesY, keyNamesX, inputParams, scaledGroups}})
     
     const kvStorage = await fetch(`https://api.gpu.trading/v1/kv/CACHE/${fileName}`, {
       method: 'POST',
@@ -120,81 +118,130 @@ export const runClassifier = async ({
     shuffle, 
     balancing,
     strategyDuration,
+    addIndicators,
     skipNext,
-    sufix,
-    inputKeyNames = [],
     validateRows, 
     yCallbackFunc, 
-    xCallbackFunc,
+    xCallbackFunc
   }) => {
 
-  
-  const inputParamsMatrix = {}
-  const groupsOhlcv = []
+  let inputParams = null
+  let scaledGroups = null
+  let trainXMatrix = [], trainYMatrix = [], testXMatrix = [], testYMatrix = []
+  let configXMatrix = {}, configYMatrix = {}
+  let firstAssetId = null
+  const excludes = []
 
   for(const assetObj of assetGroups)
   {
+    const assetId = xxhash64.h32(`${JSON.stringify(assetObj)}_${addIndicators.toString()}`, 0xABCD).toString(16)
+
+    if(!firstAssetId)
+    {
+      firstAssetId = assetId
+    }
+
     const assetOhlcv = {}
     let skipRow = false
 
     for(const asset of assetObj)
     {
-      const {symbol, interval, type, limit, inputParams} = asset
-      const hashKeyName = xxhash64.h32(`${type}-${symbol}-${interval}-${limit}-${JSON.stringify(inputParams)}`, 0xABCD).toString(16)
-      const pathName = 'datasets/temp-ohlcv'
-      const fileName = `${hashKeyName}.json`
-      const localOhlcv = await loadFile({fileName, pathName})
+      const {symbol, interval, type, limit} = asset
+      const keyName = `${symbol}_${interval}`
+      const hashFileName = xxhash64.h32(`${type}-${symbol}-${interval}-${limit}-${assetId}`, 0xABCD).toString(16)
+      const pathName = `datasets/temp/${keyName}`
+      const ohlcvFileName = `ohlcv-${hashFileName}.json`
+      const settingsFileName = `settings-${hashFileName}.json`
+      const localOhlcvTSV = await loadFile({fileName: ohlcvFileName, pathName})
+      const localSettingsJSON = await loadFile({fileName: settingsFileName, pathName})
+      let localSettings, localOhlcv
 
-      if(localOhlcv)
+      if(localOhlcvTSV && localSettingsJSON)
       {
-        inputParamsMatrix[`${symbol}_${interval}`] = inputParams
-        assetOhlcv[`${symbol}_${interval}`] = localOhlcv
+        localSettings = JSON.parse(localSettingsJSON)
+        localOhlcv = JSON.parse(localOhlcvTSV)
+
+        if(!inputParams)
+        {
+          inputParams = localSettings.inputParams
+        }
+
+        if(!scaledGroups)
+        {
+          scaledGroups = localSettings.scaledGroups
+        }
+
+        for(const arr of Object.values(scaledGroups))
+        {
+          excludes.push(...(arr.map(v => `${keyName}_${v}`)))
+        }
+
+        assetOhlcv[keyName] = localOhlcv
         continue
       }
       
-      const ohlcv = await loadOhlcv({symbol, interval, type, limit})
+      const rawOhlcv = await loadOhlcv({symbol, interval, type, limit})
 
-      if (!Array.isArray(ohlcv)){
+      if (!Array.isArray(rawOhlcv)){
         skipRow = true
         console.log(`Skipping row: ${symbol} (${interval})`)
         continue
       }
 
-      const indicators = new OHLCV_INDICATORS({input: ohlcv, ticker: `${symbol}_${interval}`, inputParams})
+      const start = performance.now()
+      const indicators = addIndicators(rawOhlcv, keyName)
+      const end = performance.now()
+      console.log(`${keyName} took ${end - start} milliseconds`)
 
-      const arrObj = indicators.getData()
+      const ohlcv = indicators.getData()
 
-      inputParamsMatrix[`${symbol}_${interval}`] = inputParams
+      if(!inputParams)
+      {
+        inputParams = indicators.inputParams
+      }
+      
+      if(!scaledGroups)
+      {
+        scaledGroups = indicators.scaledGroups
+      }
+      
+      assetOhlcv[keyName] = ohlcv
 
-      assetOhlcv[`${symbol}_${interval}`] = arrObj
+      for(const arr of Object.values(scaledGroups))
+      {
+        excludes.push(...(arr.map(v => `${keyName}_${v}`)))
+      }
 
-      await saveFile({pathName, fileName, jsonData: JSON.stringify(arrObj)})
+      await resetDirectory(pathName)
+
+      try{
+        await saveFile({pathName, fileName: ohlcvFileName, data: ohlcv})
+        await saveFile({pathName, fileName: settingsFileName, data: {inputParams, scaledGroups}})
+      } catch(err)
+      {
+        console.log(err.message)
+      }
+
     }
+
 
     if(skipRow === true)
     {
       break
     }
 
-    groupsOhlcv.push(
-      mergeMultiTimeframes({inputObj: assetOhlcv, target: 'date', chunkSize: 1000})
-    )
-  }
-  
-  console.log(groupsOhlcv)
+    let mergedOhlcv = mergeMultiTimeframes({inputObj: assetOhlcv, target: 'date', chunkSize: 1000})
+    const customMinMaxRanges = []
+    const firstRow = mergedOhlcv[0]
 
-  return
+    for(const k of Object.keys(firstRow))
+    {
+      if(k.includes('rsi'))
+      {
+        customMinMaxRanges.push({[k]: {min: 0, max: 100}})
+      }
+    }
 
-  
-
- 
-
-
-  let trainXMatrix = [], trainYMatrix = [], testXMatrix = [], testYMatrix = []
-  let configXMatrix = {}, configYMatrix = {}
-
-  for(const [symbol, arrObj] of Object.entries(groupsOhlcv))
-  {
     const {
       trainX,
       trainY,
@@ -203,40 +250,45 @@ export const runClassifier = async ({
       configX,
       configY
     } = parseTrainingXY({
-      arrObj,
-      trainingSplit: 0.90,
+      arrObj: mergedOhlcv,
+      trainingSplit: 0.80,
       validateRows,
       yCallbackFunc,
       xCallbackFunc,
-      state: new StrategyClass({skipNext, strategyDuration, inputKeyNames}),
+      state: new StrategyClass({skipNext, strategyDuration}),
       shuffle,
-      balancing
+      balancing,
+      excludes,
+      customMinMaxRanges
     })
 
-    continue
 
-    if(!configXMatrix.hasOwnProperty(symbol))
+    //console.log(`trainX[0]`, trainX[0])
+    //console.log(`configX`, configX)
+
+    if(!configXMatrix.hasOwnProperty(assetId))
     {
-      configXMatrix[symbol] = [];
-      configYMatrix[symbol] = [];   
+      configXMatrix[assetId] = [];
+      configYMatrix[assetId] = [];
     }
 
-    configXMatrix[symbol].push(configX);
-    configYMatrix[symbol].push(configY);
+    configXMatrix[assetId].push(configX);
+    configYMatrix[assetId].push(configY);
     trainXMatrix.push(...trainX);
     trainYMatrix.push(...trainY);
     testXMatrix.push(...testX);
     testYMatrix.push(...testY);
+
   }
+  
+  const keyNamesX = configXMatrix[firstAssetId][0].outputKeyNames
+  const keyNamesY = configYMatrix[firstAssetId][0].outputKeyNames
 
-  return
-
-  const firstSymbol = assetOhlcv[0]
-  const keyNamesX = configXMatrix[firstSymbol][0].outputKeyNames
-  const keyNamesY = configYMatrix[firstSymbol][0].outputKeyNames
-
+  console.log(`trainX (${trainXMatrix[0].length})`, trainXMatrix[0])
+  console.log(`trainY (${trainYMatrix[0].length})`, trainYMatrix)
   console.log(`keyNamesX (${keyNamesX.length})`, keyNamesX)
 
+  
   const trainingTestingData = {
     trainX: trainXMatrix,
     trainY: trainYMatrix,
@@ -245,11 +297,12 @@ export const runClassifier = async ({
     keyNamesY,
     keyNamesX,
     inputParams,
-    sufix
+    scaledGroups
   };
 
-  //await trainModel('tensorflow', trainingTestingData);
-  await trainModel('knn', trainingTestingData);
+  //await trainModel('knn', trainingTestingData);
   //await trainModel('naive-bayes', trainingTestingData);
+  await trainModel('tensorflow', trainingTestingData);
+
   //await trainModel('decision-tree', trainingTestingData);
 };

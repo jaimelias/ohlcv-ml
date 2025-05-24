@@ -14,9 +14,8 @@ export const CRYPTO_INTERVALS = ['10s', '1m', '5m', '15m', '30m', '1h', '4h', '8
 export const loadOhlcv = async({symbol, interval, limit, type}) => {
     const fileName = `${symbol}-${limit}.json`
     const pathName = `datasets/${type}/${interval}`
-    const local = await loadFile({fileName, pathName})
-
-    if(local) return local
+    const tsv = await loadFile({fileName, pathName})
+    if(tsv) return JSON.parse(tsv)
 
     let remote
 
@@ -39,7 +38,7 @@ export const loadOhlcv = async({symbol, interval, limit, type}) => {
 
     if(remote.status === 200)
     {
-        await saveFile({fileName, pathName, jsonData: JSON.stringify(remote.data)})   
+        await saveFile({fileName, pathName, data: JSON.stringify(remote.data)})   
         return remote.data
     }
 }
@@ -50,15 +49,17 @@ export const loadFile = async ({fileName, pathName}) => {
         const parsedPathName = path.join(process.cwd(), pathName, fileName);
         const data = await fs.readFile(parsedPathName, 'utf8');
         console.log(`File ${pathName}/${fileName} loaded!`);
-        return JSON.parse(data); // Optionally return the file content for further processing
+        return data; // Optionally return the file content for further processing
     } catch (err) {
+        console.log(err.message)
         console.log(`Error reading file locally ${pathName}/${fileName}`)
         return false
     }
 }
 
-export const saveFile = async ({ fileName, pathName, jsonData }) => {
+export const saveFile = async ({ fileName, pathName, data }) => {
   try {
+    const text = typeof data !== 'string' ? JSON.stringify(data) : data
     fileName = fileName.toLowerCase();
     const fullPath = path.join(process.cwd(), pathName, fileName);
     const dir = path.dirname(fullPath);
@@ -67,7 +68,7 @@ export const saveFile = async ({ fileName, pathName, jsonData }) => {
     await fs.mkdir(dir, { recursive: true });
 
     // Write data to the file
-    await fs.writeFile(fullPath, jsonData, 'utf8');
+    await fs.writeFile(fullPath, text, 'utf8');
     console.log(`Saved to ${pathName}/${fileName}!`);
     return fullPath;
   } catch (err) {

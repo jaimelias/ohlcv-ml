@@ -57,11 +57,11 @@ export const fetchDatasets = async (type, interval, limit) => {
 
         output.push([symbol, ohlcv.data.length])
         
-        await saveFile({fileName: `${symbol}.json`, pathName, jsonData: JSON.stringify(ohlcv.data)})
+        await saveFile({fileName: `${symbol}.json`, pathName, data: JSON.stringify(ohlcv.data)})
         matrix.push(symbol)
     }
 
-    await saveFile({fileName: `matrix.json`, pathName, jsonData: JSON.stringify(matrix)})
+    await saveFile({fileName: `matrix.json`, pathName, data: JSON.stringify(matrix)})
 
 
     console.log(output)
