@@ -7,7 +7,7 @@ export const fetchBinanceKlines = async ({symbol = 'BTC', interval = '1m', limit
         if (!dateRanges || dateRanges.length === 0) throw new Error('Failed to generate date ranges');
 
         const responsePromises = dateRanges.map(o => {
-            const url = new URL('https://fapi.binance.com/fapi/v1/klines');
+            const url = new URL('https://fapi.binance.com/fapi/v1/indexPriceKlines');
             url.searchParams.set('symbol', `${symbol}USDT`);
             url.searchParams.set('pair', `${symbol}USDT`);
             url.searchParams.set('interval', interval);

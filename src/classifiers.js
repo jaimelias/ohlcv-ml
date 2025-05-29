@@ -51,12 +51,12 @@ export const trainModel = async (modelType, dataParams) => {
     case 'tensorflow':
         isStrModelJson = false
         params = {
-          hiddenUnits: 128,
-          activation: 'sigmoid', //relu, sigmoid, tanh, elu, selu, 
+          hiddenUnits: 32,
+          activation: 'relu', //relu, sigmoid, tanh, elu, selu, 
           optimizer: 'adam', //adam, sgd, adagrad, adamax, rmsprop
-          batchSize: 32,
-          epochs: 600,
-          learningRate: 0.0001
+          batchSize: 8,
+          epochs: 300,
+          learningRate: 0.001
         }
         model = new TensorFlowClassifier(params)
         await model.train(trainX, fittedTrainY)
@@ -101,17 +101,66 @@ export const trainModel = async (modelType, dataParams) => {
 
 
 class StrategyClass  {
-  constructor({skipNext, strategyDuration})
-  {
-    this.skipIndex = 0
-    this.skipNext = skipNext
-    this.strategyDuration = strategyDuration
+  constructor({skipNext, strategyDuration}) {
+    this.skipIndex = 0;
+    this.skipNext = skipNext;
+    this.strategyDuration = strategyDuration;
+    this.initialBalance = 2000;
+    this.riskFraction = 0.1;
   }
-  add(idx)
-  {
-    this.skipIndex = idx
+
+  add = idx => {
+    this.skipIndex = idx;
+  }
+
+  reportInit = ({trade, side, entryPrice, stopLoss, takeProfit, leverage, date}) => {
+
+
+    const { initialBalance, riskFraction } = this;
+
+    const d = new Date(date)
+
+    if(d.getFullYear() !== '2025' && d.getMonth() !== 5) return 
+
+    const positionSize = initialBalance * riskFraction; 
+    let pnlPct, pnl;
+
+    // profit scenario
+    if (trade === 1) {
+      // relative move to TP
+      pnlPct = side === 'buy'
+        ? (takeProfit - entryPrice) / entryPrice
+        : (entryPrice - takeProfit) / entryPrice;
+    } 
+    // loss scenario
+    else if (trade === 0) {
+      // relative move to SL
+      pnlPct = side === 'buy'
+        ? (entryPrice - stopLoss) / entryPrice
+        : (stopLoss - entryPrice) / entryPrice;
+      pnlPct = -pnlPct;
+    } 
+    else {
+      throw new Error('Invalid trade flag: must be 0 (SL) or 1 (TP).');
+    }
+
+    // scaled by leverage and position size in USD
+    pnl = positionSize * leverage * pnlPct;
+
+    console.log(pnlPct, date, d.getMonth())
+
+    // update balance
+    this.initialBalance += pnl;
+
+    // you can log or return whatever you need for downstream reporting
+    return {
+      pnl,                          // USD PnL
+      pnlPct: pnlPct * 100,        // PnL % of entry
+      balance: this.initialBalance // new account balance
+    };
   }
 }
+
 
 export const runClassifier = async ({
     assetGroups, 
@@ -231,6 +280,7 @@ export const runClassifier = async ({
     }
 
     let mergedOhlcv = mergeMultiTimeframes({inputObj: assetOhlcv, target: 'date', chunkSize: 1000})
+
     const customMinMaxRanges = []
     const firstRow = mergedOhlcv[0]
 
@@ -241,6 +291,8 @@ export const runClassifier = async ({
         customMinMaxRanges.push({[k]: {min: 0, max: 100}})
       }
     }
+
+    const state = new StrategyClass({skipNext, strategyDuration})
 
     const {
       trainX,
@@ -255,12 +307,14 @@ export const runClassifier = async ({
       validateRows,
       yCallbackFunc,
       xCallbackFunc,
-      state: new StrategyClass({skipNext, strategyDuration}),
+      state,
       shuffle,
       balancing,
       excludes,
       customMinMaxRanges
     })
+
+    console.log('initialBalance 1', state.initialBalance.toLocaleString('en', { useGrouping: false, maximumFractionDigits: 0, notation: 'standard' }))
 
 
     //console.log(`trainX[0]`, trainX[0])
@@ -300,9 +354,8 @@ export const runClassifier = async ({
     scaledGroups
   };
 
-  //await trainModel('knn', trainingTestingData);
-  //await trainModel('naive-bayes', trainingTestingData);
-  await trainModel('tensorflow', trainingTestingData);
-
+  await trainModel('knn', trainingTestingData);
+  await trainModel('naive-bayes', trainingTestingData);
+  //await trainModel('tensorflow', trainingTestingData);
   //await trainModel('decision-tree', trainingTestingData);
 };

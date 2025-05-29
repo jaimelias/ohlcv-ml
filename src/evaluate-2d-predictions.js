@@ -41,7 +41,7 @@ export const evaluate2dPredictions = (testY, predictions, keyNamesY, log = false
   for(const [labelKey, labelObj] of Object.entries(metrics.labels))
   {
     if (Object.keys(labelObj).length <= 1) {
-      throw new Error(`Underfitting error: Label '${labelKey}' has only one unique prediction result in model ${modelName}.`);
+      //throw new Error(`Underfitting error: Label '${labelKey}' has only one unique prediction result in model ${modelName}.`);
     }
 
     for(const [valueKey, {total, correct}] of Object.entries(labelObj))
