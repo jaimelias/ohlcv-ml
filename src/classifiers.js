@@ -16,7 +16,7 @@ const {KV_AUTORIZATION} = process.env
 
 export const trainModel = async (modelType, dataParams) => {
 
-  const {trainX, trainY, testX, testY, keyNamesY, keyNamesX, inputParams, scaledGroups} = dataParams
+  const {trainX, trainY, testX, testY, keyNamesY, keyNamesX, inputParamsMatrix, excludes} = dataParams
 
   let params = {}
   let model
@@ -51,10 +51,10 @@ export const trainModel = async (modelType, dataParams) => {
     case 'tensorflow':
         isStrModelJson = false
         params = {
-          hiddenUnits: 32,
-          activation: 'relu', //relu, sigmoid, tanh, elu, selu, 
-          optimizer: 'adam', //adam, sgd, adagrad, adamax, rmsprop
-          batchSize: 8,
+          hiddenUnits: 128,
+          activation: 'sigmoid', //relu, sigmoid, tanh, elu, selu, 
+          optimizer: 'sgd', //adam, sgd, adagrad, adamax, rmsprop
+          batchSize: 32,
           epochs: 300,
           learningRate: 0.001
         }
@@ -74,7 +74,7 @@ export const trainModel = async (modelType, dataParams) => {
 
   if(isStrModelJson)
   {
-    await saveFile({fileName, pathName: 'models', data: {model: model.toJSON(), keyNamesY, keyNamesX, inputParams, scaledGroups}})
+    await saveFile({fileName, pathName: 'models', data: {model: model.toJSON(), keyNamesY, keyNamesX, inputParamsMatrix, excludes}})
     
     const kvStorage = await fetch(`https://api.gpu.trading/v1/kv/CACHE/${fileName}`, {
       method: 'POST',
@@ -100,86 +100,26 @@ export const trainModel = async (modelType, dataParams) => {
 }
 
 
-class StrategyClass  {
-  constructor({skipNext, strategyDuration}) {
-    this.skipIndex = 0;
-    this.skipNext = skipNext;
-    this.strategyDuration = strategyDuration;
-    this.initialBalance = 2000;
-    this.riskFraction = 0.1;
-  }
 
-  add = idx => {
-    this.skipIndex = idx;
-  }
-
-  reportInit = ({trade, side, entryPrice, stopLoss, takeProfit, leverage, date}) => {
-
-
-    const { initialBalance, riskFraction } = this;
-
-    const d = new Date(date)
-
-    if(d.getFullYear() !== '2025' && d.getMonth() !== 5) return 
-
-    const positionSize = initialBalance * riskFraction; 
-    let pnlPct, pnl;
-
-    // profit scenario
-    if (trade === 1) {
-      // relative move to TP
-      pnlPct = side === 'buy'
-        ? (takeProfit - entryPrice) / entryPrice
-        : (entryPrice - takeProfit) / entryPrice;
-    } 
-    // loss scenario
-    else if (trade === 0) {
-      // relative move to SL
-      pnlPct = side === 'buy'
-        ? (entryPrice - stopLoss) / entryPrice
-        : (stopLoss - entryPrice) / entryPrice;
-      pnlPct = -pnlPct;
-    } 
-    else {
-      throw new Error('Invalid trade flag: must be 0 (SL) or 1 (TP).');
-    }
-
-    // scaled by leverage and position size in USD
-    pnl = positionSize * leverage * pnlPct;
-
-    console.log(pnlPct, date, d.getMonth())
-
-    // update balance
-    this.initialBalance += pnl;
-
-    // you can log or return whatever you need for downstream reporting
-    return {
-      pnl,                          // USD PnL
-      pnlPct: pnlPct * 100,        // PnL % of entry
-      balance: this.initialBalance // new account balance
-    };
-  }
-}
 
 
 export const runClassifier = async ({
+    state,
     assetGroups, 
     shuffle, 
     balancing,
-    strategyDuration,
     addIndicators,
-    skipNext,
     validateRows, 
     yCallbackFunc, 
     xCallbackFunc
   }) => {
 
-  let inputParams = null
-  let scaledGroups = null
+
+  let inputParamsMatrix = {}
   let trainXMatrix = [], trainYMatrix = [], testXMatrix = [], testYMatrix = []
   let configXMatrix = {}, configYMatrix = {}
   let firstAssetId = null
-  const excludes = []
+  const excludes = new Set()
 
   for(const assetObj of assetGroups)
   {
@@ -197,38 +137,6 @@ export const runClassifier = async ({
     {
       const {symbol, interval, type, limit} = asset
       const keyName = `${symbol}_${interval}`
-      const hashFileName = xxhash64.h32(`${type}-${symbol}-${interval}-${limit}-${assetId}`, 0xABCD).toString(16)
-      const pathName = `datasets/temp/${keyName}`
-      const ohlcvFileName = `ohlcv-${hashFileName}.json`
-      const settingsFileName = `settings-${hashFileName}.json`
-      const localOhlcvTSV = await loadFile({fileName: ohlcvFileName, pathName})
-      const localSettingsJSON = await loadFile({fileName: settingsFileName, pathName})
-      let localSettings, localOhlcv
-
-      if(localOhlcvTSV && localSettingsJSON)
-      {
-        localSettings = JSON.parse(localSettingsJSON)
-        localOhlcv = JSON.parse(localOhlcvTSV)
-
-        if(!inputParams)
-        {
-          inputParams = localSettings.inputParams
-        }
-
-        if(!scaledGroups)
-        {
-          scaledGroups = localSettings.scaledGroups
-        }
-
-        for(const arr of Object.values(scaledGroups))
-        {
-          excludes.push(...(arr.map(v => `${keyName}_${v}`)))
-        }
-
-        assetOhlcv[keyName] = localOhlcv
-        continue
-      }
-      
       const rawOhlcv = await loadOhlcv({symbol, interval, type, limit})
 
       if (!Array.isArray(rawOhlcv)){
@@ -244,33 +152,12 @@ export const runClassifier = async ({
 
       const ohlcv = indicators.getData()
 
-      if(!inputParams)
+      if(!inputParamsMatrix.hasOwnProperty(keyName))
       {
-        inputParams = indicators.inputParams
-      }
-      
-      if(!scaledGroups)
-      {
-        scaledGroups = indicators.scaledGroups
+        inputParamsMatrix[keyName] = indicators.inputParams
       }
       
       assetOhlcv[keyName] = ohlcv
-
-      for(const arr of Object.values(scaledGroups))
-      {
-        excludes.push(...(arr.map(v => `${keyName}_${v}`)))
-      }
-
-      await resetDirectory(pathName)
-
-      try{
-        await saveFile({pathName, fileName: ohlcvFileName, data: ohlcv})
-        await saveFile({pathName, fileName: settingsFileName, data: {inputParams, scaledGroups}})
-      } catch(err)
-      {
-        console.log(err.message)
-      }
-
     }
 
 
@@ -281,18 +168,20 @@ export const runClassifier = async ({
 
     let mergedOhlcv = mergeMultiTimeframes({inputObj: assetOhlcv, target: 'date', chunkSize: 1000})
 
-    const customMinMaxRanges = []
+    const customMinMaxRanges = {}
     const firstRow = mergedOhlcv[0]
 
     for(const k of Object.keys(firstRow))
     {
-      if(k.includes('rsi'))
+      if(k.includes('rsi') && !k.includes('_x_'))
       {
-        customMinMaxRanges.push({[k]: {min: 0, max: 100}})
+        customMinMaxRanges[k] = {min: 0, max: 100}
+      }
+      else if(k.includes('_minmax_') || k.includes('_zscore_'))
+      {
+        excludes.add(k)
       }
     }
-
-    const state = new StrategyClass({skipNext, strategyDuration})
 
     const {
       trainX,
@@ -310,15 +199,9 @@ export const runClassifier = async ({
       state,
       shuffle,
       balancing,
-      excludes,
+      excludes: [...excludes],
       customMinMaxRanges
     })
-
-    console.log('initialBalance 1', state.initialBalance.toLocaleString('en', { useGrouping: false, maximumFractionDigits: 0, notation: 'standard' }))
-
-
-    //console.log(`trainX[0]`, trainX[0])
-    //console.log(`configX`, configX)
 
     if(!configXMatrix.hasOwnProperty(assetId))
     {
@@ -336,13 +219,12 @@ export const runClassifier = async ({
   }
   
   const keyNamesX = configXMatrix[firstAssetId][0].outputKeyNames
-  const keyNamesY = configYMatrix[firstAssetId][0].outputKeyNames
+  const keyNamesY = configYMatrix[firstAssetId][0].keyNames
 
   console.log(`trainX (${trainXMatrix[0].length})`, trainXMatrix[0])
   console.log(`trainY (${trainYMatrix[0].length})`, trainYMatrix)
   console.log(`keyNamesX (${keyNamesX.length})`, keyNamesX)
 
-  
   const trainingTestingData = {
     trainX: trainXMatrix,
     trainY: trainYMatrix,
@@ -350,12 +232,12 @@ export const runClassifier = async ({
     testY: testYMatrix,
     keyNamesY,
     keyNamesX,
-    inputParams,
-    scaledGroups
+    inputParamsMatrix,
+    excludes: [...excludes]
   };
 
   await trainModel('knn', trainingTestingData);
-  await trainModel('naive-bayes', trainingTestingData);
+  //await trainModel('naive-bayes', trainingTestingData);
   //await trainModel('tensorflow', trainingTestingData);
   //await trainModel('decision-tree', trainingTestingData);
 };

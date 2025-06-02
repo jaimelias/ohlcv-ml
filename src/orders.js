@@ -3,8 +3,8 @@ export const maxLeveragePossible = ({ entryPrice, stopLoss, MAX_PERCENTUAL_LOSS,
     throw new Error('entryPrice must be > 0');
   if (stopLoss === entryPrice) 
     throw new Error('stopLoss must be different from entryPrice');
-  if (MAX_PERCENTUAL_LOSS <= 0) 
-    throw new Error('MAX_PERCENTUAL_LOSS must be > 0');
+  if (MAX_PERCENTUAL_LOSS <= 0 || MAX_PERCENTUAL_LOSS > 1) 
+    throw new Error('MAX_PERCENTUAL_LOSS must be > 0  and <= 1');
 
   // absolute adverse move in price
   const adverseMove = Math.abs(entryPrice - stopLoss);
