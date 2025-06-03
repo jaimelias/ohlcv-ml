@@ -134,13 +134,22 @@ export const runClassifier = async ({
 
     const assetOhlcv = {}
     let skipRow = false
+    let prevAssetName = null
 
     for(let assetIdx = 0; assetIdx < assetArr.length; assetIdx++)
     {
       const asset = assetArr[assetIdx]
-      const {symbol, interval, type, limit} = asset
+      const {symbol, interval, type, limit, assetName} = asset
+
+
+      if(!assetName || assetName === prevAssetName) {
+        throw new Error(`property "assetName" in group ${assetGroupsIdx} symbol ${symbol} can not be repeated or undefined.`)
+      } else {
+        prevAssetName = assetName
+      }
+
       const keyName = `${symbol}_${interval}`
-      const rawOhlcv = await loadOhlcv({symbol, interval, type, limit})
+      const rawOhlcv = (await loadOhlcv({symbol, interval, type, limit})).slice(-limit)
 
       if (!Array.isArray(rawOhlcv)){
         skipRow = true
@@ -160,7 +169,7 @@ export const runClassifier = async ({
         inputParamsMatrix[keyName] = indicators.inputParams
       }
       
-      assetOhlcv[keyName] = ohlcv
+      assetOhlcv[assetName] = ohlcv
     }
 
 

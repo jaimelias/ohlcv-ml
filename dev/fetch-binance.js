@@ -110,5 +110,5 @@ const yyyymmddFromTimeStamp = (timestamp, interval) => {
 
 const formatNumber = num => {
     const cleaned = num.replace(/[$,]/g, '')
-    return Math.round(parseFloat(cleaned) * 100) / 100
+    return Number(cleaned)
 }

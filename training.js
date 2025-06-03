@@ -6,7 +6,7 @@ import StrategyClass from "./src/strategy.js"
 const MM = 200
 const atrSlRatio = 1.2
 const atrTpRatio = 1.2
-const symbol1 = 'XRP'
+const symbol1 = 'ASSET_1_1h'
 
 const xCallbackFunc = ({ objRow, index, state }) => {
   
@@ -41,9 +41,9 @@ const yCallbackFunc = ({ objRow, index, state }) => {
   const curr = objRow[index]
   
   const {
-    [`${symbol1}_1h_atr_14_upper`]: upperAtr,
-    [`${symbol1}_1h_atr_14_lower`]: lowerAtr,
-    [`${symbol1}_1h_close`]: currClose
+    [`${symbol1}_atr_14_upper`]: upperAtr,
+    [`${symbol1}_atr_14_lower`]: lowerAtr,
+    [`${symbol1}_close`]: currClose
   } = curr //contains 1d and 1h properties
 
   const nextRows = Array.from({length: futureIntervals}).map((_, i) => objRow[index + (i+1)]) //array of objects in 1h intervals containing 1d and 1h properties
@@ -51,8 +51,8 @@ const yCallbackFunc = ({ objRow, index, state }) => {
   if(nextRows.some(o => typeof o === 'undefined')) return null //excludes this row if nextRow has any undefined item
 
   //tp and sl can only be execute if order is already accepted
-  const upperAtrCrossed = nextRows.findIndex(o => o[`${symbol1}_1h_close`] > upperAtr)
-  const lowerAtrCrossed = nextRows.findIndex(o => o[`${symbol1}_1h_close`] < lowerAtr)
+  const upperAtrCrossed = nextRows.findIndex(o => o[`${symbol1}_close`] > upperAtr)
+  const lowerAtrCrossed = nextRows.findIndex(o => o[`${symbol1}_close`] < lowerAtr)
   let trade = 0 //initiate as crossed down
 
   let noneLabel = ''
@@ -60,7 +60,7 @@ const yCallbackFunc = ({ objRow, index, state }) => {
   if(upperAtrCrossed === -1 && lowerAtrCrossed === -1)
   {
       const lastRow = nextRows.at(-1)
-      const lastClose = lastRow[`${symbol1}_1h_close`]
+      const lastClose = lastRow[`${symbol1}_close`]
       noneLabel = Number(lastClose > currClose)
       trade = 0.5
   }
@@ -91,19 +91,6 @@ const yCallbackFunc = ({ objRow, index, state }) => {
 
 const validateRows = ({ objRow, index, state }) => {
   
-  let output = false
-  const curr = objRow[index]
-  const prev = objRow[index - 1]
-  const prevPrev = objRow[index -2]
-
-  for(const [k, v] of Object.entries(curr))
-  {
-    if((v !== 1 && v !== -1)) continue 
-    if(k.includes('price_x_') || k.includes('macd_diff_x_macd_dea'))
-    {
-      output = true
-    }
-  }
 
   return true
 }
@@ -144,12 +131,17 @@ const addIndicators = (input, keyName) => {
 
 const state = new StrategyClass()
 
-const assetGroups = [
-  [
-    {symbol: symbol1, interval: '1h', type: 'crypto', limit: 20000}, //ASSET_0
-    {symbol: symbol1, interval: '1d', type: 'crypto', limit: 2090}
-  ]
-]
+const allSymbols = ['ADA', 'BTC', 'ETH', 'PAXG', 'SOL', 'XRP']
+
+const assetGroups = []
+
+for(const k of allSymbols)
+{
+  assetGroups.push([
+    {symbol: k, assetName: 'ASSET_1_1h', interval: '1h', type: 'crypto', limit: 5000}, //ASSET_0
+    {symbol: k, assetName: 'ASSET_1_2h', interval: '1d', type: 'crypto', limit: 2090}
+  ])
+}
 
 const shuffle = true
 const balancing = null
