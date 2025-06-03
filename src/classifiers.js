@@ -192,7 +192,7 @@ export const runClassifier = async ({
       configY
     } = parseTrainingXY({
       arrObj: mergedOhlcv,
-      trainingSplit: 0.80,
+      trainingSplit: 0.90,
       validateRows,
       yCallbackFunc,
       xCallbackFunc,
