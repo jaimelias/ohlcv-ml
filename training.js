@@ -6,7 +6,7 @@ import StrategyClass from "./src/strategy.js"
 const MM = 200
 const atrSlRatio = 1.2
 const atrTpRatio = 1.2
-const symbol1 = 'BTC'
+const symbol1 = 'XRP'
 
 const xCallbackFunc = ({ objRow, index, state }) => {
   
@@ -40,7 +40,7 @@ const yCallbackFunc = ({ objRow, index, state }) => {
   if (index + futureIntervals > objRow.length) return null
   const curr = objRow[index]
   
-  let {
+  const {
     [`${symbol1}_1h_atr_14_upper`]: upperAtr,
     [`${symbol1}_1h_atr_14_lower`]: lowerAtr,
     [`${symbol1}_1h_close`]: currClose
@@ -146,8 +146,8 @@ const state = new StrategyClass()
 
 const assetGroups = [
   [
-    {symbol: symbol1, interval: '1d', type: 'crypto', limit: 2090}, 
-    {symbol: symbol1, interval: '1h', type: 'crypto', limit: 20000}
+    {symbol: symbol1, interval: '1h', type: 'crypto', limit: 20000}, //ASSET_0
+    {symbol: symbol1, interval: '1d', type: 'crypto', limit: 2090}
   ]
 ]
 

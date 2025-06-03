@@ -117,13 +117,15 @@ export const runClassifier = async ({
 
   let inputParamsMatrix = {}
   let trainXMatrix = [], trainYMatrix = [], testXMatrix = [], testYMatrix = []
-  let configXMatrix = {}, configYMatrix = {}
+  let keyNamesX = []
+  let keyNamesY = []
   let firstAssetId = null
   const excludes = new Set()
 
-  for(const assetObj of assetGroups)
+  for(let assetGroupsIdx = 0; assetGroupsIdx < assetGroups.length; assetGroupsIdx++)
   {
-    const assetId = xxhash64.h32(`${JSON.stringify(assetObj)}_${addIndicators.toString()}`, 0xABCD).toString(16)
+    const assetArr = assetGroups[assetGroupsIdx]
+    const assetId = xxhash64.h32(`${JSON.stringify(assetArr)}_${addIndicators.toString()}`, 0xABCD).toString(16)
 
     if(!firstAssetId)
     {
@@ -133,8 +135,9 @@ export const runClassifier = async ({
     const assetOhlcv = {}
     let skipRow = false
 
-    for(const asset of assetObj)
+    for(let assetIdx = 0; assetIdx < assetArr.length; assetIdx++)
     {
+      const asset = assetArr[assetIdx]
       const {symbol, interval, type, limit} = asset
       const keyName = `${symbol}_${interval}`
       const rawOhlcv = await loadOhlcv({symbol, interval, type, limit})
@@ -203,23 +206,18 @@ export const runClassifier = async ({
       customMinMaxRanges
     })
 
-    if(!configXMatrix.hasOwnProperty(assetId))
+    if(assetGroupsIdx === 0)
     {
-      configXMatrix[assetId] = [];
-      configYMatrix[assetId] = [];
+      keyNamesX = configX.outputKeyNames
+      keyNamesY = configY.keyNames
     }
 
-    configXMatrix[assetId].push(configX);
-    configYMatrix[assetId].push(configY);
     trainXMatrix.push(...trainX);
     trainYMatrix.push(...trainY);
     testXMatrix.push(...testX);
     testYMatrix.push(...testY);
 
   }
-  
-  const keyNamesX = configXMatrix[firstAssetId][0].outputKeyNames
-  const keyNamesY = configYMatrix[firstAssetId][0].keyNames
 
   console.log(`trainX (${trainXMatrix[0].length})`, trainXMatrix[0])
   console.log(`trainY (${trainYMatrix[0].length})`, trainYMatrix)
